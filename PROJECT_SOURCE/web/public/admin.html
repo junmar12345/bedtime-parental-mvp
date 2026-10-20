@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>BEDTIME MASTER — Payment Review</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .review-head { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    .review-card { margin:14px 0; padding:16px; border:1px solid #334155; border-radius:14px; background:#0f172a; }
+    .review-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+    .review-label { font-size:12px; color:#94a3b8; margin-bottom:4px; }
+    .review-value { overflow-wrap:anywhere; line-height:1.45; }
+    .status-pill { display:inline-block; border-radius:999px; padding:5px 9px; background:#334155; font-size:12px; font-weight:700; }
+    .status-pill.approved { background:#14532d; color:#dcfce7; }
+    .status-pill.rejected { background:#7f1d1d; color:#fee2e2; }
+    .status-pill.pending { background:#78350f; color:#fef3c7; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .proof-dialog { max-width:min(900px,95vw); border:1px solid #475569; border-radius:14px; padding:16px; background:#0b1020; color:#f8fafc; }
+    .proof-dialog::backdrop { background:rgba(0,0,0,.75); }
+    #proofImage { display:block; max-width:86vw; max-height:75vh; margin:12px auto; object-fit:contain; background:#fff; }
+    .muted-small { color:#94a3b8; font-size:12px; line-height:1.5; }
+    @media(max-width:600px){ .wrap{padding-top:18px}.card{padding:16px}.review-grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <section class="card">
+    <div class="review-head"><div><h1>BEDTIME MASTER — Payment Review</h1><p class="muted">Private admin view. Parent-submitted proof is stored in private R2 and served only after admin-key verification. PayMongo activation requires its signed paid webhook.</p></div></div>
+    <label for="key">Admin Key</label>
+    <input id="key" type="password" autocomplete="current-password" placeholder="Enter the Worker ADMIN_KEY">
+    <div class="actions"><button id="loadButton" type="button">LOAD PAYMENTS</button><button id="clearButton" class="secondary" type="button">CLEAR KEY</button></div>
+    <p id="out" role="status" aria-live="polite" class="out"></p>
+    <p class="muted-small">This page does not store the admin key in local storage. Do not share screenshots showing payment references or parent details.</p>
+  </section>
+  <section class="card">
+    <div id="payments"><p class="empty">Enter the admin key and load the queue.</p></div>
+  </section>
+</div>
+<dialog id="proofDialog" class="proof-dialog">
+  <div class="review-head"><strong id="proofTitle">Payment proof</strong><button type="button" id="closeProof" class="secondary">Close</button></div>
+  <img id="proofImage" alt="Private payment proof">
+  <p class="muted-small">Shown only in this authenticated admin session. Do not download or share unless needed for payment review.</p>
+</dialog>
+<script>
+(() => {
+  'use strict';
+  const keyInput = document.getElementById('key');
+  const out = document.getElementById('out');
+  const panel = document.getElementById('payments');
+  const loadButton = document.getElementById('loadButton');
+  const proofDialog = document.getElementById('proofDialog');
+  const proofImage = document.getElementById('proofImage');
+  let proofObjectUrl = '';
+  let adminKey = '';
+  const text = (value) => value == null || value === '' ? '—' : String(value);
+  const dateTime = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  };
+  const element = (tag, className, content) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (content !== undefined) node.textContent = content;
+    return node;
+  };
+  async function api(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set('x-admin-key', adminKey);
+    if (options.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+    const response = await fetch(path, { ...options, headers, cache:'no-store' });
+    const type = response.headers.get('content-type') || '';
+    const data = type.includes('application/json') ? await response.json().catch(() => ({})) : null;
+    if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
+  }
+  function cell(label, value) {
+    const div = element('div');
+    div.append(element('div','review-label',label),element('div','review-value',value));
+    return div;
+  }
+  async function showProof(payment) {
+    const popup = window.open('about:blank','_blank');
+    if (popup) {
+      try { popup.document.title = 'Loading private payment proof…'; popup.document.body.textContent = 'Loading private payment proof…'; } catch {}
+    }
+    try {
+      const response = await fetch(`/api/admin/payments/${encodeURIComponent(payment.paymentId)}/proof`, {
+        headers: { 'x-admin-key': adminKey }, cache:'no-store'
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Proof could not be loaded (${response.status})`);
+      }
+      const blob = await response.blob();
+      if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
+      proofObjectUrl = URL.createObjectURL(blob);
+      document.getElementById('proofTitle').textContent = `Payment proof — ${text(payment.paymentId)}`;
+      proofImage.src = proofObjectUrl;
+      if (proofDialog.showModal) {
+        proofDialog.showModal();
+        if (popup) popup.close();
+      } else if (popup) popup.location = proofObjectUrl;
+      else throw new Error('Browser blocked the proof viewer popup. Allow popups or reopen the review page.');
+    } catch (error) {
+      if (popup && !popup.closed) popup.close();
+      out.textContent = error.message || 'Unable to show proof.';
+    }
+  }
+  function paymentCard(p) {
+    const card = element('article','review-card');
+    const head = element('div','review-head');
+    const title = element('h3','',`${text(p.parentName)} · ${text(p.billingChildName || 'Child')}`);
+    const status = element('span',`status-pill ${String(p.status).toUpperCase()==='APPROVED'?'approved':String(p.status).toUpperCase()==='REJECTED'?'rejected':'pending'}`,text(p.status));
+    head.append(title,status); card.append(head);
+    const grid = element('div','review-grid');
+    grid.append(
+      cell('Parent account',text(p.parentEmail)),
+      cell('Child code',text(p.billingChildCode)),
+      cell('Amount',`₱${Number(p.amount || 0).toLocaleString('en-PH')}`),
+      cell('Payment type',text(p.paymentType)),
+      cell('Payment path',text(p.paymentMethod || 'MANUAL')),
+      cell('Transaction/reference',text(p.referenceNumber)),
+      cell('Submitted',dateTime(p.createdAt)),
+      cell('Confirmed paid',dateTime(p.paidAt)),
+      cell('Proof file',p.hasProof ? `${text(p.proofName)} · ${Number(p.proofSize || 0).toLocaleString()} bytes` : 'No proof attached')
+    );
+    card.append(grid);
+    if (p.checkoutUrl && p.status === 'PENDING') {
+      const note = element('p','muted-small','PayMongo checkout was created. Do not manually approve; the signed paid webhook controls activation.');
+      card.append(note);
+    }
+    if (p.reviewNote) card.append(element('p','muted-small',`Review note: ${p.reviewNote}`));
+    const actions = element('div','actions');
+    if (p.hasProof) {
+      const view = element('button','secondary','VIEW PROOF');
+      view.type='button'; view.addEventListener('click',()=>showProof(p)); actions.append(view);
+    }
+    const isPending = String(p.status).toUpperCase() === 'PENDING';
+    const isPayMongo = String(p.paymentMethod || '').toUpperCase() === 'PAYMONGO' || Boolean(p.paymongoCheckoutSessionId);
+    if (isPending && !isPayMongo && p.hasProof && p.referenceNumber) {
+      const approve = element('button','','APPROVE MANUAL PROOF');
+      approve.type='button'; approve.addEventListener('click',()=>review(p,'approve'));
+      const reject = element('button','secondary','REJECT');
+      reject.type='button'; reject.addEventListener('click',()=>review(p,'reject'));
+      actions.append(approve,reject);
+    } else if (isPending && isPayMongo) {
+      actions.append(element('span','muted-small','Awaiting verified PayMongo webhook · no manual approval'));
+    } else if (isPending && !p.hasProof) {
+      actions.append(element('span','muted-small','Cannot approve until private proof is attached.'));
+    }
+    card.append(actions);
+    return card;
+  }
+  async function review(payment, decision) {
+    let note = '';
+    if (decision === 'reject') {
+      note = window.prompt('Reason for rejecting this payment proof:', '') ?? null;
+      if (note === null) return;
+    } else {
+      if (!window.confirm(`Approve the manual proof for ₱${payment.amount} and activate ${payment.billingChildName || 'this Child'} for one year?`)) return;
+    }
+    try {
+      await api(`/api/admin/payments/${encodeURIComponent(payment.paymentId)}/${decision}`, {
+        method:'POST', body:JSON.stringify({ note })
+      });
+      out.textContent = decision === 'approve' ? 'Manual payment approved.' : 'Payment proof rejected.';
+      await loadPayments();
+    } catch (error) { out.textContent = error.message || 'Review action failed.'; }
+  }
+  async function loadPayments() {
+    adminKey = keyInput.value;
+    if (!adminKey) { out.textContent = 'Enter the admin key first.'; keyInput.focus(); return; }
+    loadButton.disabled = true;
+    out.textContent = 'Loading secure payment records…';
+    panel.replaceChildren(element('p','empty','Loading…'));
+    try {
+      const data = await api('/api/admin/payments');
+      const payments = Array.isArray(data.payments) ? data.payments : [];
+      panel.replaceChildren();
+      if (!payments.length) panel.append(element('p','empty','No payment records found.'));
+      for (const p of payments) panel.append(paymentCard(p));
+      const pending = payments.filter(p=>String(p.status).toUpperCase()==='PENDING').length;
+      out.textContent = `Loaded ${payments.length} payment record(s); ${pending} pending.`;
+    } catch (error) {
+      panel.replaceChildren(element('p','empty',error.message || 'Unable to load payment records.'));
+      out.textContent = 'Payment review connection failed.';
+    } finally { loadButton.disabled=false; }
+  }
+  loadButton.addEventListener('click',loadPayments);
+  keyInput.addEventListener('keydown',e=>{if(e.key==='Enter')loadPayments();});
+  document.getElementById('clearButton').addEventListener('click',()=>{
+    adminKey=''; keyInput.value=''; out.textContent='Admin key cleared from this page.';
+    panel.replaceChildren(element('p','empty','Enter the admin key and load the queue.'));
+  });
+  document.getElementById('closeProof').addEventListener('click',()=>proofDialog.close());
+  proofDialog.addEventListener('close',()=>{proofImage.removeAttribute('src');if(proofObjectUrl){URL.revokeObjectURL(proofObjectUrl);proofObjectUrl='';}});
+})();
+</script>
+</body>
+</html>

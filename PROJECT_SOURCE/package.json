@@ -1,0 +1,8 @@
+{
+  "name": "bedtime-parental-staging",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  }
+}

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bedtime Parental</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="brand">🌙 Bedtime Parental</div>
+  <div class="tag">Parent Control • Child Safety • Simple Setup</div>
+</header>
+
+<main class="grid">
+
+<section class="card" id="registerCard">
+  <h1>Parent Registration</h1>
+  <p class="muted">
+    Register first. Your first successful app activation starts a
+    <strong>2-day free trial</strong>.
+  </p>
+
+  <label>Full Name</label>
+  <input id="regName" autocomplete="name">
+
+  <label>Email</label>
+  <input id="regEmail" type="email" autocomplete="email">
+
+  <label>Mobile</label>
+  <input id="regMobile" autocomplete="tel">
+
+  <label>Password</label>
+  <input id="regPassword" type="password" autocomplete="new-password">
+
+  <button onclick="registerParent()">REGISTER PARENT</button>
+
+  <div id="regOut" class="out"></div>
+</section>
+
+<section class="card">
+  <h1>Parent Login</h1>
+  <p class="muted">
+    Use the same email and password inside the ONE Bedtime Android app.
+  </p>
+
+  <label>Email</label>
+  <input id="loginEmail" type="email">
+
+  <label>Password</label>
+  <input id="loginPassword" type="password">
+
+  <button onclick="loginParent()">LOGIN / ACTIVATE</button>
+
+  <div id="loginOut" class="out"></div>
+</section>
+
+<section class="card dashboard hidden" id="dashboard">
+  <div class="row between">
+    <div>
+      <h1>Parent Dashboard</h1>
+      <div id="account"></div>
+    </div>
+    <button class="secondary" onclick="logout()">LOGOUT</button>
+  </div>
+
+  <hr>
+
+  <h2>Add Child</h2>
+  <div class="inline">
+    <input id="childCode" inputmode="numeric" maxlength="6"
+           placeholder="Enter Child 6-digit code">
+    <button onclick="pairChild()">ADD CHILD</button>
+  </div>
+
+  <div id="children"></div>
+
+  <hr>
+
+  <h2>Payment</h2>
+  <div id="paymentInfo"></div>
+
+    <p>Use the secure PayMongo checkout to pay the amount calculated by the server.</p>
+
+  <button onclick="payWithPayMongo()">PAY SECURELY WITH PAYMONGO</button>
+
+  <p>Account activation happens only after the server verifies the signed PayMongo payment notification.</p>
+
+  <div id="payOut" class="out"></div>
+</section>
+
+</main>
+</div>
+
+<script>
+const tokenKey = "bedtime_parent_token";
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;");
+}
+
+async function api(path, options = {}) {
+  const headers = {
+    "content-type": "application/json",
+    ...(options.headers || {})
+  };
+
+  const token = localStorage.getItem(tokenKey);
+
+  if (token) {
+    headers["x-parent-token"] = token;
+  }
+
+  const r = await fetch(path, {
+    ...options,
+    headers
+  });
+
+  const d = await r.json().catch(() => ({}));
+
+  if (!r.ok) {
+    throw new Error(d.error || "Request failed");
+  }
+
+  return d;
+}
+
+async function registerParent() {
+  const out = document.getElementById("regOut");
+  out.textContent = "Saving...";
+
+  try {
+    const d = await api("/api/register-parent", {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.getElementById("regName").value.trim(),
+        email: document.getElementById("regEmail").value.trim(),
+        mobile: document.getElementById("regMobile").value.trim(),
+        password: document.getElementById("regPassword").value
+      })
+    });
+
+    out.innerHTML =
+      "✓ Registration saved<br>" +
+      "Parent ID: <strong>" +
+      esc(d.parent.parentId) +
+      "</strong><br>" +
+      "Your 2-day trial starts on first successful app activation.";
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  }
+}
+
+async function loginParent() {
+  const out = document.getElementById("loginOut");
+  out.textContent = "Connecting...";
+
+  try {
+    const d = await api("/api/login", {
+      method: "POST",
+      body: JSON.stringify({
+        email: document.getElementById("loginEmail").value.trim(),
+        password: document.getElementById("loginPassword").value
+      })
+    });
+
+    localStorage.setItem(tokenKey, d.token);
+
+    out.textContent = "✓ Login successful";
+
+    await loadDashboard();
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  }
+}
+
+async function loadDashboard() {
+  const me = await api("/api/me");
+  const p = me.parent;
+
+  document.getElementById("dashboard")
+    .classList.remove("hidden");
+
+  document.getElementById("account").innerHTML =
+    "<strong>" + esc(p.name) + "</strong><br>" +
+    esc(p.email) + "<br>" +
+    "Status: <strong>" + esc(p.status) + "</strong><br>" +
+    "Trial ends: " + esc(p.trialEndsAt || "-") + "<br>" +
+    "Subscription ends: " +
+    esc(p.subscriptionEndsAt || "-");
+
+  document.getElementById("paymentInfo").innerHTML =
+    "First payment: <strong>₱" + p.initialPayment + "</strong>" +
+    " — ₱" + p.registrationFee +
+    " registration + ₱" + p.annualFee + " annual.<br>" +
+    "Renewal: <strong>₱" + p.renewalFee + "/year</strong>.";
+
+  await loadChildren();
+}
+
+async function loadChildren() {
+  const d = await api("/api/children");
+  const box = document.getElementById("children");
+
+  if (!d.children.length) {
+    box.innerHTML =
+      '<div class="empty">No Child paired yet.</div>';
+    return;
+  }
+
+  box.innerHTML = d.children.map(c => `
+    <div class="child">
+      <div>
+        <strong>${esc(c.name)}</strong>
+        <div>Code: ${esc(c.code)}</div>
+        <div>${c.online ? "● ONLINE" : "○ OFFLINE"}</div>
+        <div>State: ${c.locked ? "LOCKED" : "UNLOCKED"}</div>
+      </div>
+      <div class="actions">
+        <button onclick="commandChild('${c.childId}','LOCK')">
+          LOCK
+        </button>
+        <button class="secondary"
+                onclick="commandChild('${c.childId}','UNLOCK')">
+          UNLOCK
+        </button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function pairChild() {
+  const code =
+    document.getElementById("childCode").value.trim();
+
+  try {
+    await api("/api/pair", {
+      method: "POST",
+      body: JSON.stringify({ code })
+    });
+
+    document.getElementById("childCode").value = "";
+    await loadChildren();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function commandChild(id, command) {
+  try {
+    await api("/api/children/" + id + "/command", {
+      method: "POST",
+      body: JSON.stringify({ command })
+    });
+
+    await loadChildren();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function payWithPayMongo() {
+  const out = document.getElementById("payOut");
+  out.textContent = "Preparing secure PayMongo checkout...";
+
+  try {
+    const d = await api("/api/payment/checkout", {
+      method: "POST",
+      body: "{}"
+    });
+
+    if (d.error) {
+      throw new Error(d.error);
+    }
+
+    const checkoutUrl = String(d.checkoutUrl || "").trim();
+    if (!checkoutUrl) {
+      throw new Error("The server did not return a checkout URL.");
+    }
+
+    const checkout = new URL(checkoutUrl);
+    if (
+      checkout.protocol !== "https:" ||
+      checkout.hostname !== "checkout.paymongo.com" ||
+      checkout.username ||
+      checkout.password
+    ) {
+      throw new Error("The server returned an untrusted checkout URL.");
+    }
+
+    out.textContent = "Opening secure PayMongo checkout...";
+    window.location.assign(checkout.toString());
+  } catch (e) {
+    out.textContent = "PayMongo checkout: " +
+      (e && e.message ? e.message : "Unknown error");
+  }
+}
+async function submitPayment() {
+  const out = document.getElementById("payOut");
+
+  try {
+    const d = await api("/api/payment/submit", {
+      method: "POST",
+      body: "{}"
+    });
+
+    out.textContent =
+      "Payment status: " +
+      d.payment.status +
+      " | Payment ID: " +
+      d.payment.paymentId +
+      " | Amount: ₱" +
+      d.payment.amount;
+  } catch (e) {
+    out.textContent = "Payment: " + e.message;
+  }
+}
+
+function logout() {
+  localStorage.removeItem(tokenKey);
+  location.reload();
+}
+
+if (localStorage.getItem(tokenKey)) {
+  loadDashboard().catch(() => {
+    localStorage.removeItem(tokenKey);
+  });
+}
+</script>
+</body>
+</html>

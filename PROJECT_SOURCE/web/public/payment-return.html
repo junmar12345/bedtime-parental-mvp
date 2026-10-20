@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>BEDTIME MASTER — Payment Return</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>BEDTIME MASTER</h1>
+      <h2 id="heading">Checkout finished</h2>
+      <p id="message" class="muted">The payment status is being checked by the server.</p>
+      <p class="muted">Returning from Checkout does not confirm payment. Your Child subscription changes only after the server verifies the signed PayMongo paid webhook.</p>
+      <button type="button" id="closeButton">Return to app / close page</button>
+    </section>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const state = params.get('payment');
+    document.getElementById('heading').textContent = state === 'cancel' ? 'Checkout cancelled' : 'Checkout returned';
+    document.getElementById('message').textContent = state === 'cancel'
+      ? 'No payment was marked approved by this return page. You can reopen the Parent app to try again.'
+      : 'Thank you. Wait for the secure server verification, then refresh the Parent app billing status.';
+    document.getElementById('closeButton').addEventListener('click', () => { window.close(); });
+  </script>
+</body>
+</html>

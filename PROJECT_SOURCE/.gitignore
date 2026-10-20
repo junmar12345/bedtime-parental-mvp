@@ -1,0 +1,29 @@
+﻿# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cloudflare / Wrangler local state
+.wrangler/
+
+# Android local/build files
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+*.iml
+
+# Local test/runtime data
+backend/node_modules/
+backend/data/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Backups
+*.BACKUP_*
+*.backup-*

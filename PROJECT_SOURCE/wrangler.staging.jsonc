@@ -1,0 +1,31 @@
+﻿{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bedtime-parental-staging",
+  "main": "./web/src/index.js",
+  "compatibility_date": "2025-12-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./web/public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bedtime-parental-staging-db",
+      "database_id": "284b6800-3b5e-4a8f-a308-d2671a048949",
+      "migrations_dir": "./web/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PAYMENT_PROOFS",
+      "bucket_name": "bedtime-payment-proofs-staging"
+    }
+  ],
+  "vars": {
+    "PAYMONGO_MODE": "test",
+    "PAYMONGO_PAYMENT_METHOD_TYPES": "qrph,gcash,paymaya,card",
+    "PUBLIC_BASE_URL": "https://bedtime-parental-staging.tdudskie.workers.dev"
+  }
+}
